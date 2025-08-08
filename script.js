@@ -17,9 +17,26 @@ const phoneContent = document.getElementById('phone-content');
 const phoneDock = document.getElementById('phone-dock');
 const homeButton = document.getElementById('home-button');
 const statusBar = document.getElementById('phone-status-bar');
+const errorLog = document.getElementById('error-log');
 
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
+
+function showError(message, error) {
+    console.error(message, error);
+    loaderElement.classList.remove('hidden');
+    loaderElement.querySelector('p').textContent = 'An error occurred. See details below.';
+    loaderElement.querySelector('.spinner').style.display = 'none';
+    errorLog.textContent = `Error: ${error.message}\n\nStack Trace:\n${error.stack}`;
+}
+
+window.addEventListener('error', function(event) {
+    showError('Unhandled global error:', event.error);
+});
+
+window.addEventListener('unhandledrejection', function(event) {
+    showError('Unhandled promise rejection:', event.reason);
+});
 
 async function uploadImageFromUrl(url, filename) {
     try {
@@ -34,7 +51,7 @@ async function uploadImageFromUrl(url, filename) {
         const uploadedUrl = await websim.upload(file);
         return uploadedUrl;
     } catch (error) {
-        console.error(`Error uploading image from url ${url}:`, error);
+        console.error(`Error uploading image from url ${url}:`, error.stack || error);
         throw error;
     }
 }
@@ -283,7 +300,7 @@ async function init() {
         animate();
     } catch (error) {
         console.error("Failed to initialize:", error);
-        loaderElement.querySelector('p').textContent = 'Error creating phones. Please try again.';
+        showError("Failed to initialize application.", error);
     }
 }
 
