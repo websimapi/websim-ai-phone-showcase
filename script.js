@@ -27,7 +27,10 @@ function showError(message, error) {
     loaderElement.classList.remove('hidden');
     loaderElement.querySelector('p').textContent = 'An error occurred. See details below.';
     loaderElement.querySelector('.spinner').style.display = 'none';
-    errorLog.textContent = `Error: ${error.message}\n\nStack Trace:\n${error.stack}`;
+    // Ensure we have a message and stack, provide defaults if not.
+    const errorMessage = error?.message || 'No message available.';
+    const errorStack = error?.stack || 'No stack trace available.';
+    errorLog.textContent = `Error: ${errorMessage}\n\nStack Trace:\n${errorStack}`;
 }
 
 window.addEventListener('error', function(event) {
@@ -38,21 +41,29 @@ window.addEventListener('unhandledrejection', function(event) {
     showError('Unhandled promise rejection:', event.reason);
 });
 
+// Utility to introduce a delay
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function uploadImageFromUrl(url, filename) {
-    try {
-        // The AI-generated URL might be temporary or have CORS restrictions.
-        // To get around this, we can use websim's fetch proxy.
-        const response = await fetch(url, { headers: { 'x-websim-proxy-request': 'true' } });
-        if (!response.ok) {
-            throw new Error(`Failed to fetch image from ${url}: ${response.statusText}`);
+    // Retry logic to handle potential race conditions with temporary image URLs
+    for (let i = 0; i < 3; i++) {
+        try {
+            await sleep(500 * i); // Wait a bit before fetching, increasing delay for each retry
+            const response = await fetch(url, { headers: { 'x-websim-proxy-request': 'true' } });
+            if (!response.ok) {
+                throw new Error(`Failed to fetch image from ${url}: ${response.statusText}`);
+            }
+            const blob = await response.blob();
+            const file = new File([blob], filename, { type: blob.type });
+            const uploadedUrl = await websim.upload(file);
+            return uploadedUrl;
+        } catch (error) {
+            console.warn(`Attempt ${i + 1} failed for ${url}. Retrying...`, error.message);
+            if (i === 2) { // If it's the last attempt, re-throw the error
+                 console.error(`Error uploading image from url ${url} after 3 attempts:`, error.stack || error);
+                 throw error;
+            }
         }
-        const blob = await response.blob();
-        const file = new File([blob], filename, { type: blob.type });
-        const uploadedUrl = await websim.upload(file);
-        return uploadedUrl;
-    } catch (error) {
-        console.error(`Error uploading image from url ${url}:`, error.stack || error);
-        throw error;
     }
 }
 
