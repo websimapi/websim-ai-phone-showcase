@@ -54,37 +54,6 @@ canvas {
     display: none !important;
 }
 
-#controls-container {
-    position: fixed;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 5;
-}
-
-#add-phone-button {
-    padding: 12px 25px;
-    background-color: #ffffff;
-    color: #111;
-    border: none;
-    border-radius: 30px;
-    cursor: pointer;
-    font-size: 16px;
-    font-weight: 600;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-    transition: all 0.2s ease;
-}
-
-#add-phone-button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(0,0,0,0.2);
-}
-
-#add-phone-button:disabled {
-    background-color: #aaa;
-    cursor: not-allowed;
-}
-
 #phone-ui-container {
     position: fixed;
     top: 0;
@@ -212,10 +181,9 @@ canvas {
     transform: translateX(-50%);
     color: white;
     padding: 5px 10px;
-    background: rgba(0, 0, 0, 0.5);
     border-radius: 5px;
     font-size: 14px;
     text-align: center;
     width: 150px;
-    pointer-events: none;
 }
+
