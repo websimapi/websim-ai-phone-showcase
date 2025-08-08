@@ -8,6 +8,7 @@ let scene, camera, renderer, labelRenderer, controls;
 const phoneDesigns = [];
 const phoneObjects = [];
 let INTERSECTED;
+let phoneCounter = 0; // Keep track of generated phones
 
 const sceneContainer = document.getElementById('scene-container');
 const loaderElement = document.getElementById('loader');
@@ -17,48 +18,52 @@ const phoneContent = document.getElementById('phone-content');
 const phoneDock = document.getElementById('phone-dock');
 const homeButton = document.getElementById('home-button');
 const statusBar = document.getElementById('phone-status-bar');
+const addPhoneButton = document.getElementById('add-phone-button');
 
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 
-async function generatePhoneDesigns() {
-    const themes = ["Bioluminescent Forest", "Retro-Futuristic Cityscape", "Minimalist Zen Garden", "Cosmic Ocean Depths"];
-    
-    for (let i = 0; i < 4; i++) {
-        const theme = themes[i];
-        const completion = await websim.chat.completions.create({
-            messages: [{
-                role: "system",
-                content: `You are a creative UI/UX designer for a new mobile OS. Based on a theme, generate a design specification. Respond in JSON. The JSON should have: 'name' (a cool OS name), 'primaryColor' (hex), 'backgroundColor' (hex), 'textColor' (hex), 'wallpaperPrompt' (a DALL-E prompt for a vertical phone wallpaper), 'logoPrompt' (a DALL-E prompt for a simple, modern, abstract logo on a transparent background), and 'apps' (an array of 8 app names suitable for the theme).`
-            }, {
-                role: "user",
-                content: `Theme: ${theme}`
-            }],
-            json: true,
+async function generatePhoneDesign(theme) {
+    const completion = await websim.chat.completions.create({
+        messages: [{
+            role: "system",
+            content: `You are a creative UI/UX designer for a new mobile OS. Based on a theme, generate a design specification. Respond in JSON. The JSON should have: 'name' (a cool OS name), 'primaryColor' (hex), 'backgroundColor' (hex), 'textColor' (hex), 'wallpaperPrompt' (a DALL-E prompt for a vertical phone wallpaper), 'logoPrompt' (a DALL-E prompt for a simple, modern, abstract logo on a transparent background), and 'apps' (an array of 8 app names suitable for the theme).`
+        }, {
+            role: "user",
+            content: `Theme: ${theme}`
+        }],
+        json: true,
+    });
+
+    const designSpec = JSON.parse(completion.content);
+
+    const [wallpaperResult, logoResult] = await Promise.all([
+        websim.imageGen({ prompt: designSpec.wallpaperPrompt, aspect_ratio: '9:16' }),
+        websim.imageGen({ prompt: designSpec.logoPrompt, transparent: true })
+    ]);
+
+    designSpec.wallpaperUrl = wallpaperResult.url;
+    designSpec.logoUrl = logoResult.url;
+
+    const appIcons = await Promise.all(designSpec.apps.map(async (appName) => {
+            const iconResult = await websim.imageGen({
+            prompt: `modern app icon for '${appName}', ${theme} theme, simple, flat design, vibrant colors`,
+            transparent: true
         });
+        return { name: appName, iconUrl: iconResult.url };
+    }));
 
-        const designSpec = JSON.parse(completion.content);
+    designSpec.apps = appIcons;
+    return designSpec;
+}
 
-        const [wallpaperResult, logoResult] = await Promise.all([
-            websim.imageGen({ prompt: designSpec.wallpaperPrompt, aspect_ratio: '9:16' }),
-            websim.imageGen({ prompt: designSpec.logoPrompt, transparent: true })
-        ]);
-
-        designSpec.wallpaperUrl = wallpaperResult.url;
-        designSpec.logoUrl = logoResult.url;
-
-        const appIcons = await Promise.all(designSpec.apps.map(async (appName) => {
-             const iconResult = await websim.imageGen({
-                prompt: `modern app icon for '${appName}', ${theme} theme, simple, flat design, vibrant colors`,
-                transparent: true
-            });
-            return { name: appName, iconUrl: iconResult.url };
-        }));
-
-        designSpec.apps = appIcons;
-
-        phoneDesigns.push(designSpec);
-    }
+async function generateInitialPhoneDesigns() {
+    const themes = ["Bioluminescent Forest", "Retro-Futuristic Cityscape", "Minimalist Zen Garden"];
+    
+    const designPromises = themes.map(theme => generatePhoneDesign(theme));
+    
+    const designs = await Promise.all(designPromises);
+    phoneDesigns.push(...designs);
 }
 
 function createPhoneObject(design, index) {
@@ -91,6 +96,7 @@ function createPhoneObject(design, index) {
 
     group.userData.id = index;
     group.userData.design = design;
+    group.userData.originalRotation = new THREE.Euler(-Math.PI / 2, 0, 0);
 
     return group;
 }
@@ -139,24 +145,29 @@ function setupScene() {
     scene.add(table);
 }
 
-function layoutPhones() {
-    const positions = [
-        new THREE.Vector3(-1, 0.6, 0.5),
-        new THREE.Vector3(1, 0.6, 0.5),
-        new THREE.Vector3(-1, 0.6, -0.5),
-        new THREE.Vector3(1, 0.6, -0.5),
-    ];
-    const rotations = [
-       -Math.PI / 6, Math.PI / 6, -Math.PI / 8, Math.PI / 8
-    ];
+function addPhoneToScene(design) {
+    const index = phoneCounter;
+    const phone = createPhoneObject(design, index);
 
-    phoneDesigns.forEach((design, i) => {
-        const phone = createPhoneObject(design, i);
-        phone.position.copy(positions[i]);
-        phone.rotation.set(-Math.PI / 2, 0, rotations[i]);
-        phone.castShadow = true;
-        scene.add(phone);
-        phoneObjects.push(phone);
+    // Dynamic positioning
+    const angle = (index * (Math.PI * 0.5));
+    const radius = 1.2;
+    const x = Math.cos(angle) * radius;
+    const z = Math.sin(angle) * radius;
+    
+    phone.position.set(x, 0.6, z);
+    phone.rotation.copy(phone.userData.originalRotation);
+    phone.rotation.y = -angle - Math.PI / 2;
+
+    phone.castShadow = true;
+    scene.add(phone);
+    phoneObjects.push(phone);
+    phoneCounter++;
+}
+
+function layoutPhones() {
+    phoneDesigns.forEach((design) => {
+        addPhoneToScene(design);
     });
 }
 
@@ -210,10 +221,38 @@ function onPhoneClick(phone) {
         .start();
 }
 
+async function handleAddPhoneClick() {
+    addPhoneButton.disabled = true;
+    addPhoneButton.textContent = 'Generating...';
+
+    const themes = [
+        "Steampunk Aviary", "Cyber-Noir Alley", "Solar-Punk Greenhouse", 
+        "Art Deco Metropolis", "Abyssal Plain", "Crystal Caverns", 
+        "Enchanted Library", "Volcanic Forge"
+    ];
+    const theme = themes[Math.floor(Math.random() * themes.length)];
+
+    try {
+        const newDesign = await generatePhoneDesign(theme);
+        phoneDesigns.push(newDesign);
+        addPhoneToScene(newDesign);
+    } catch (error) {
+        console.error("Failed to generate new phone:", error);
+        alert("Sorry, there was an error creating a new phone. Please try again.");
+    } finally {
+        addPhoneButton.disabled = false;
+        addPhoneButton.textContent = 'Generate New Phone';
+    }
+}
 
 function onPointerMove(event) {
-    pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-    pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    if (phoneUIContainer.classList.contains('hidden')) {
+        pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+        pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    } else {
+        pointer.x = -2; // Off-screen
+        pointer.y = -2;
+    }
 }
 
 function onWindowResize() {
@@ -228,32 +267,43 @@ function animate() {
     controls.update();
     TWEEN.update();
 
-    raycaster.setFromCamera(pointer, camera);
-    const screens = phoneObjects.map(p => p.userData.screen);
-	const intersects = raycaster.intersectObjects(screens);
+    // Only do raycasting if in the showcase view
+    if (phoneUIContainer.classList.contains('hidden')) {
+        raycaster.setFromCamera(pointer, camera);
+        const screens = phoneObjects.map(p => p.userData.screen);
+        const intersects = raycaster.intersectObjects(screens);
 
-    if (intersects.length > 0) {
-        if (INTERSECTED != intersects[0].object) {
-            if (INTERSECTED) INTERSECTED.parent.scale.set(1,1,1);
-            INTERSECTED = intersects[0].object;
-            INTERSECTED.parent.scale.set(1.1, 1.1, 1.1);
-            document.body.style.cursor = 'pointer';
+        if (intersects.length > 0) {
+            if (INTERSECTED !== intersects[0].object) {
+                if (INTERSECTED) {
+                    new TWEEN.Tween(INTERSECTED.parent.scale).to({ x: 1, y: 1, z: 1 }, 200).easing(TWEEN.Easing.Quadratic.Out).start();
+                }
+                INTERSECTED = intersects[0].object;
+                 new TWEEN.Tween(INTERSECTED.parent.scale).to({ x: 1.1, y: 1.1, z: 1.1 }, 200).easing(TWEEN.Easing.Quadratic.Out).start();
+                document.body.style.cursor = 'pointer';
+            }
+        } else {
+            if (INTERSECTED) {
+                 new TWEEN.Tween(INTERSECTED.parent.scale).to({ x: 1, y: 1, z: 1 }, 200).easing(TWEEN.Easing.Quadratic.Out).start();
+            }
+            INTERSECTED = null;
+            document.body.style.cursor = 'auto';
         }
     } else {
-        if (INTERSECTED) INTERSECTED.parent.scale.set(1,1,1);
-        INTERSECTED = null;
-        document.body.style.cursor = 'auto';
+         if (INTERSECTED) {
+            new TWEEN.Tween(INTERSECTED.parent.scale).to({ x: 1, y: 1, z: 1 }, 200).easing(TWEEN.Easing.Quadratic.Out).start();
+            INTERSECTED = null;
+        }
     }
-
+    
     renderer.render(scene, camera);
     labelRenderer.render(scene, camera);
 }
 
-
 async function init() {
     setupScene();
     try {
-        await generatePhoneDesigns();
+        await generateInitialPhoneDesigns();
         layoutPhones();
         loaderElement.classList.add('hidden');
         animate();
@@ -266,7 +316,7 @@ async function init() {
 window.addEventListener('resize', onWindowResize);
 window.addEventListener('pointermove', onPointerMove);
 window.addEventListener('click', () => {
-    if(INTERSECTED) {
+    if(INTERSECTED && phoneUIContainer.classList.contains('hidden')) {
         onPhoneClick(INTERSECTED.parent);
     }
 });
@@ -276,5 +326,6 @@ homeButton.addEventListener('click', () => {
     controls.enabled = true;
 });
 
-init();
+addPhoneButton.addEventListener('click', handleAddPhoneClick);
 
+init();
